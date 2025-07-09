@@ -1,0 +1,12 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+vocal_isolater.egg-info/
+
+# Virtual environments
+.venv/
+./JfQzXhHCmkk.mp4
+.DS_Store
