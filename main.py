@@ -9,9 +9,40 @@ from moviepy.audio.io.AudioFileClip import AudioFileClip
 import logging
 import subprocess
 import yt_dlp
+import time
+import threading
 
 # 不要なログを抑制
 logging.basicConfig(level=logging.ERROR)
+
+def show_loading_animation(stop_event):
+    """
+    ローディングアニメーションを表示する
+    """
+    num = 1
+    clock = 0.5
+    if os.name == 'nt':
+        os.system('cls')
+    else:
+        os.system('clear')
+    print(" ")
+
+    while not stop_event.is_set():
+        s = 'N O W  L O A D I N G'
+        space = ' ' * num
+        count = num - 20
+
+        if num < 20:
+            time.sleep(clock)
+            print(f'\r{space} {s}', end='')
+            num += 1
+        else:
+            if count <= len(s):
+                time.sleep(clock)
+                print(f'\r{s[len(s) - count:]} {" " * (num - count)} {s[:(len(s) - count)]}', end='')
+                num += 1
+            else:
+                num = 1
 
 def download_videos(urls: list[str]) -> list[Path]:
     """
@@ -43,6 +74,12 @@ def download_videos(urls: list[str]) -> list[Path]:
                             if filepath:
                                 downloaded_temp_paths.append(Path(filepath))
         print("ダウンロードが完了しました。")
+        try:
+            subprocess.run(["afplay", "bell.mp3"], check=True)
+        except FileNotFoundError:
+            print("警告: afplayコマンドが見つかりません。再生できませんでした。")
+        except subprocess.CalledProcessError:
+            print("警告: bell.mp3の再生に失敗しました。")
 
         # ダウンロードされたファイルを新しい命名規則でリネーム
         renamed_paths = []
@@ -107,26 +144,64 @@ def isolate_vocals(video_path: Path):
             image_name, "audio-separator",
             f"/input/{video_path.name}", # 入力ファイルを直接引数として渡す
             "--output_dir", "/output",   # 出力ディレクトリを --output_dir で指定
-            "-m", "UVR_MDXNET_KARA_2.onnx", # モデルファイル名を指定
+            "-m", "MDX23C-8KFFT-InstVoc_HQ.ckpt", # モデルファイル名を指定
             "--output_format", "MP3" # 出力形式をMP3に指定
         ]
-        print(f" - audio-separator Docker を実行中: {' '.join(command)}")
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
-        print(result.stdout)
-        if result.stderr:
-            print(f"""audio-separator Docker (stderr):
-{result.stderr}""")
+        print(f" - audio-separator Docker を実行中...")
+        
+        stop_event = threading.Event()
+        animation_thread = threading.Thread(target=show_loading_animation, args=(stop_event,))
+        animation_thread.start()
+
+        try:
+            # Popenを使用して非同期でコマンドを実行
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = process.communicate() # 完了を待つ
+
+            stop_event.set() # アニメーションを停止
+            animation_thread.join() # スレッドが終了するのを待つ
+
+            # clear the animation line
+            print("\r" + " " * 80 + "\r", end="")
+
+            if process.returncode != 0:
+                raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
+
+            print(stdout)
+            if stderr:
+                print(f"""audio-separator Docker (stderr):
+{stderr}""")
+        except subprocess.CalledProcessError as e:
+            stop_event.set()
+            animation_thread.join()
+            print("\r" + " " * 80 + "\r", end="")
+            print(f"Docker エラーが発生しました ({video_path.name}): {e}")
+            print(f"Stdout: {e.stdout}")
+            print(f"Stderr: {e.stderr}")
+            return # エラーが発生した場合はここで処理を中断
+        except Exception as e:
+            stop_event.set()
+            animation_thread.join()
+            print("\r" + " " * 80 + "\r", end="")
+            print(f"エラーが発生しました ({video_path.name}): {e}")
+            return # エラーが発生した場合はここで処理を中断
 
         # audio-separator は出力ディレクトリ内に <元のファイル名>_vocals.mp3 と <元のファイル名>_accompaniment.mp3 を生成する
         # audio-separator は出力ディレクトリ内に <元のファイル名>_(Vocals)_<モデル名>.mp3 を生成する
-        # 例: JfQzXhHCmkk_(Vocals)_UVR_MDXNET_KARA_2.mp3
-        spleeter_output_vocals_path = output_dir / f"{video_path.stem}_(Vocals)_UVR_MDXNET_KARA_2.mp3"
+        # 例: JfQzXhHCmkk_(Vocals)_MDX23C-8KFFT-InstVoc_HQ.mp3
+        spleeter_output_vocals_path = output_dir / f"{video_path.stem}_(Vocals)_MDX23C-8KFFT-InstVoc_HQ.mp3"
         final_output_path = output_dir / f"{video_path.stem}_{today_str}_isolated.mp3"
 
         if spleeter_output_vocals_path.is_file():
             # ボーカルファイルをリネーム
             spleeter_output_vocals_path.rename(final_output_path)
             print(f"処理が完了しました。出力ファイル: {final_output_path.name}")
+            try:
+                subprocess.run(["afplay", "bell.mp3"], check=True)
+            except FileNotFoundError:
+                print("警告: afplayコマンドが見つかりません。再生できませんでした。")
+            except subprocess.CalledProcessError:
+                print("警告: bell.mp3の再生に失敗しました。")
         else:
             print("エラー: ボーカルの分離に失敗しました。")
 
