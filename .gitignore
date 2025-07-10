@@ -8,5 +8,5 @@ vocal_isolater.egg-info/
 
 # Virtual environments
 .venv/
-./JfQzXhHCmkk.mp4
+*.mp4
 .DS_Store
