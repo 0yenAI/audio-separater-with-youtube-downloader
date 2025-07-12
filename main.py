@@ -112,7 +112,7 @@ def isolate_vocals(video_path: Path):
 
     # 1. 出力ファイル名の決定
     today_str = datetime.now().strftime('%Y-%m-%d')
-    output_dir = video_path.parent / f"{video_path.stem}_audio_separator_output_{today_str}"
+    output_dir = video_path.parent / f"output_{today_str}_{video_path.stem}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -190,7 +190,7 @@ def isolate_vocals(video_path: Path):
         # audio-separator は出力ディレクトリ内に <元のファイル名>_(Vocals)_<モデル名>.mp3 を生成する
         # 例: JfQzXhHCmkk_(Vocals)_MDX23C-8KFFT-InstVoc_HQ.mp3
         spleeter_output_vocals_path = output_dir / f"{video_path.stem}_(Vocals)_MDX23C-8KFFT-InstVoc_HQ.mp3"
-        final_output_path = output_dir / f"{video_path.stem}_{today_str}_isolated.mp3"
+        final_output_path = output_dir / f"{video_path.stem}_isolated.mp3"
 
         if spleeter_output_vocals_path.is_file():
             # ボーカルファイルをリネーム
