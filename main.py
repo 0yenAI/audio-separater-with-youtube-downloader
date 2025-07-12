@@ -34,12 +34,12 @@ def show_loading_animation(stop_event):
 
         if num < 20:
             time.sleep(clock)
-            print(f'\r{space} {s}', end='')
+            print(f'\r{space} {s}', end='', flush=True)
             num += 1
         else:
             if count <= len(s):
                 time.sleep(clock)
-                print(f'\r{s[len(s) - count:]} {" " * (num - count)} {s[:(len(s) - count)]}', end='')
+                print(f'\r{s[len(s) - count:]} {" " * (num - count)} {s[:(len(s) - count)]}', end='', flush=True)
                 num += 1
             else:
                 num = 1
@@ -116,13 +116,7 @@ def isolate_vocals(video_path: Path):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # requirements.txt を生成
-        print(f" - requirements.txt を生成中...")
-        generate_req_command = ["uv", "pip", "freeze"] # 修正
-        req_result = subprocess.run(generate_req_command, capture_output=True, text=True, check=True)
-        with open("requirements.txt", "w") as f:
-            f.write(req_result.stdout)
-        print(" - requirements.txt 生成完了")
+        
 
         # Docker イメージのビルド
         image_name = "vocal-isolater-audio-separator"
@@ -131,8 +125,7 @@ def isolate_vocals(video_path: Path):
         build_result = subprocess.run(build_command, capture_output=True, text=True, check=True)
         print(build_result.stdout)
         if build_result.stderr:
-            print(f"""Docker Build (stderr):
-{build_result.stderr}""")
+            print(f'"""Docker Build (stderr):\n{build_result.stderr}"""')
 
         # audio-separator Docker コンテナを実行してボーカルを分離
         # 入力ファイルをコンテナにマウントし、出力ディレクトリもマウントする
@@ -169,8 +162,7 @@ def isolate_vocals(video_path: Path):
 
             print(stdout)
             if stderr:
-                print(f"""audio-separator Docker (stderr):
-{stderr}""")
+                print(f'"""audio-separator Docker (stderr):\n{stderr}"""')
         except subprocess.CalledProcessError as e:
             stop_event.set()
             animation_thread.join()
@@ -212,11 +204,83 @@ def isolate_vocals(video_path: Path):
     except Exception as e:
         print(f"エラーが発生しました ({video_path.name}): {e}")
 
+def convert_to_midi(audio_path: Path):
+    """
+    単一の音声ファイルからMIDIを生成する (basic-pitch Dockerを使用)
+    """
+    if not audio_path.is_file():
+        print(f"エラー: ファイルが見つかりません: {audio_path}")
+        return
+
+    print(f"MIDI変換を開始します: {audio_path.name}")
+    
+    output_dir = audio_path.parent
+    
+    # basic-pitchのDockerコマンドを構築
+    command = [
+        "docker", "run", "--rm",
+        "-v", f"{audio_path.parent.absolute()}:/basic-pitch/audio",
+        "my-basic-pitch-app",
+        "basic-pitch",
+        "/basic-pitch/audio", # 出力ディレクトリ (位置引数)
+        f"/basic-pitch/audio/{audio_path.name}", # 入力ファイルパス (位置引数)
+    ]
+
+    print(" - basic-pitch Docker を実行中...")
+    stop_event = threading.Event()
+    animation_thread = threading.Thread(target=show_loading_animation, args=(stop_event,))
+    animation_thread.start()
+
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = process.communicate()
+
+        stop_event.set()
+        animation_thread.join()
+
+        print("\r" + " " * 80 + "\r", end="")
+
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
+
+        print(stdout)
+        if stderr:
+            print(f'"""basic-pitch Docker (stderr):\n{stderr}"""')
+        
+        # basic-pitchは <元のファイル名>_basic_pitch.mid という名前でファイルを出力します
+        midi_filename = f"{audio_path.stem}_basic_pitch.mid"
+        final_output_path = output_dir / midi_filename
+        
+        if final_output_path.exists():
+            print(f"処理が完了しました。出力ファイル: {final_output_path}")
+            try:
+                subprocess.run(["afplay", "bell.mp3"], check=True)
+            except FileNotFoundError:
+                print("警告: afplayコマンドが見つかりません。再生できませんでした。")
+            except subprocess.CalledProcessError:
+                print("警告: bell.mp3の再生に失敗しました。")
+        else:
+            print("エラー: MIDIファイルの生成に失敗しました。")
+
+    except subprocess.CalledProcessError as e:
+        stop_event.set()
+        animation_thread.join()
+        print("\r" + " " * 80 + "\r", end="")
+        print(f"Docker エラーが発生しました ({audio_path.name}): {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+    except Exception as e:
+        stop_event.set()
+        animation_thread.join()
+        print("\r" + " " * 80 + "\r", end="")
+        print(f"エラーが発生しました ({audio_path.name}): {e}")
+
 def main():    
-    parser = argparse.ArgumentParser(description="動画からボーカルを分離、またはYouTube動画をダウンロードします。")        
+    parser = argparse.ArgumentParser(description="動画からボーカルを分離、YouTube動画をダウンロード、または音声ファイルをMIDIに変換します。")        
     group = parser.add_mutually_exclusive_group(required=True)    
     group.add_argument(        "-c", "--convert",         nargs='+',         help="ボーカル分離を行う動画ファイルのパス。"    )    
-    group.add_argument(        "-d", "--download",         nargs='+',         help="ダウンロードするYouTube動画のURL。"    )    
+    group.add_argument(        "-d", "--download",         nargs='+',         help="ダウンロードするYouTube動画のURL。"    )
+    group.add_argument(        "-m", "--midi",         nargs='+',         help="MIDI変換を行う音声ファイルのパス。"    )
     args = parser.parse_args()    
     if args.convert:        
         for path_str in args.convert:            
@@ -230,5 +294,11 @@ def main():
                 for video_path in downloaded_files:                
                     isolate_vocals(video_path)                
                     print("-" * 20)
+    elif args.midi:
+        for path_str in args.midi:
+            audio_path = Path(path_str)
+            convert_to_midi(audio_path)
+            print("-" * 20)
 
-if __name__ == "__main__":    main()
+if __name__ == "__main__":
+    main()

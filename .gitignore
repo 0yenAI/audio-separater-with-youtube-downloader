@@ -8,9 +8,6 @@ vocal_isolater.egg-info/
 
 # Virtual environments
 .venv/
-
-# Video files
 *.mp4
-
-# macOS files
 .DS_Store
+output_*/
