@@ -9,3 +9,7 @@ dependencies = [
     "yt-dlp>=2025.6.30",
     "audio-separator",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
